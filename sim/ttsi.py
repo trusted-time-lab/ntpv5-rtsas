@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-RTSAS 原型 — 中转时间服务实例（TTSI）
+RTSAS prototype — Transit Time Service Instance (TTSI)
 
-职责（§8.1 / §8.2 / §8.4）：
-  - 中间节点：既作为「上游的网络时间客户端」向上游发请求、验上游 RTSAP，又向下游授时。
-  - 不持 RTSAA、不签 RTSIS（「列源」的，非「被根时源认可」的）。
-  - 逐跳授权（§8.1）：TTSI 验下游凭证（分级），通过后 re-originate（用自己的 Cookie + 凭证 + 签名重包装）发上游。
-  - bearer 授权（§7.5 边界）：TTSI 不验客户端签名，凭证机密性靠 TLS/DTLS（协议只做框架）。
-  - 缓存一个槽（§8.2）：覆盖式留最新一份证明响应；提取单跳查缓存、生成递归穿透上游。
+Responsibilities (§8.1 / §8.2 / §8.4):
+  - Intermediate node: acts as an "upstream network time client" sending requests upstream and
+    verifying the upstream RTSAP, while serving time downstream.
+  - Does not hold RTSAA, does not sign RTSIS (a "listed source", not a "Root Time Source-approved" one).
+  - Hop-by-hop authorization (§8.1): TTSI validates the downstream credential (tiered), and on
+    success re-originates (re-wraps with its own Cookie + credential + signature) to upstream.
+  - bearer authorization (§7.5 boundary): TTSI does not validate the client signature; credential
+    confidentiality relies on TLS/DTLS (the protocol only provides the framework).
+  - Cache one slot (§8.2): overwrite-style keeps the latest proof response; Extract does a
+    single-hop cache lookup, Generate recurses through upstream.
 """
 from __future__ import annotations
 
@@ -25,14 +29,14 @@ from ratsi import RATSI
 class TTSI:
     def __init__(self, name: str, upstream: RATSI):
         self.name = name
-        self.sk, self.pk = gen_ed25519()          # TTSI 作为「上游网络时间客户端」的密钥
+        self.sk, self.pk = gen_ed25519()          # TTSI key as an "upstream network time client"
         self.pk_raw = pk_raw_32(self.pk)
-        self.upstream = upstream                  # 上游 RATSI
-        self.credential = make_credential(self.pk_raw)   # TTSI 自己的 API 凭证（re-originate 用）
-        self.cache: bytes | None = None           # 缓存一个槽：最新证明响应 Data 280B
-        self.registered_pks: dict = {}            # 下游客户端公钥注册
-        self.valid_cred_hashes: set = set()       # 有效凭证哈希（下游授权检查）
-        self._seen_requests: set = set()          # 本跳去重（§8.1：去重键 = H(完整请求 Data)）
+        self.upstream = upstream                  # upstream RATSI
+        self.credential = make_credential(self.pk_raw)   # TTSI's own API credential (for re-originate)
+        self.cache: bytes | None = None           # cache one slot: latest proof response Data 280B
+        self.registered_pks: dict = {}            # downstream client public-key registration
+        self.valid_cred_hashes: set = set()       # valid credential hashes (downstream authorization check)
+        self._seen_requests: set = set()          # per-hop dedup (§8.1: dedup key = H(full request Data))
 
     def register_downstream(self, pk_raw_32: bytes):
         kh = sha256(pk_raw_32)
@@ -42,46 +46,46 @@ class TTSI:
     def revoke_downstream(self, pk_raw_32: bytes):
         self.valid_cred_hashes.discard(sha256(pk_raw_32))
 
-    # ---- re-originate（§8.1）：用自己的 Cookie + 凭证 + 签名重包装，发上游 ----
+    # ---- re-originate (§8.1): re-wrap with own Cookie + credential + signature, send upstream ----
     def re_originate(self, req_mode: bytes, now: int) -> bytes:
-        cookie = os.urandom(8)                    # TTSI 本跳 Client Cookie（不复用下游 Cookie）
+        cookie = os.urandom(8)                    # TTSI per-hop Client Cookie (does not reuse downstream Cookie)
         csig = client_sign(self.sk, req_mode, cookie)
         req_data = build_request_data(req_mode, ALG_ED25519, self.credential, csig)
         return self.upstream.handle_request(req_data, cookie, now)
 
-    # ---- 处理下游请求 ----
+    # ---- handle downstream request ----
     def handle_request(self, req_data: bytes, cookie: bytes, now: int) -> bytes:
         req_mode = req_data[0:8]
         credential = req_data[16:216]
         mode_byte = req_mode[0]
 
-        # 0. 本跳去重（§8.1：re-originate 前 MUST 对完整请求 Data 去重）
+        # 0. per-hop dedup (§8.1: MUST dedup the full request Data before re-originate)
         dedup_key = sha256(req_data)
         if dedup_key in self._seen_requests:
-            return build_fault(FAULT_FIX, "重复请求（本跳去重）")
+            return build_fault(FAULT_FIX, "duplicate request (per-hop dedup)")
         self._seen_requests.add(dedup_key)
 
-        # 1. 凭证全 0 → MUST 拒绝（字段必备）
+        # 1. all-zero credential → MUST reject (required field)
         if credential == b'\x00' * 200:
-            return build_fault(FAULT_FIX, "凭证全 0")
+            return build_fault(FAULT_FIX, "all-zero credential")
 
-        # 2. 验凭证有效性（分级：生成 MUST、提取/查询 SHOULD）—— TTSI 不验客户端签名（bearer 授权）
+        # 2. validate credential validity (tiered: Generate MUST, Extract/Query SHOULD) — TTSI does not validate client signature (bearer authorization)
         kh = credential_key_hash(credential)
         cred_valid = kh in self.valid_cred_hashes
         if mode_byte == 0x02 and not cred_valid:
-            return build_fault(FAULT_FIX, "凭证无效（生成 MUST 验）")
+            return build_fault(FAULT_FIX, "credential invalid (Generate MUST validate)")
         if mode_byte in (0x01, 0x03) and not cred_valid:
-            return build_fault(FAULT_FIX, "凭证无效（提取/查询 SHOULD 验，本实现选择拒绝）")
+            return build_fault(FAULT_FIX, "credential invalid (Extract/Query SHOULD validate, this implementation chooses to reject)")
 
-        # 3. 分流（§8.2 请求处理规则表）
-        if mode_byte == 0x01:        # 提取：单跳查缓存（不递归），命中转发 / 未命中回「无」
+        # 3. dispatch (§8.2 request handling rule table)
+        if mode_byte == 0x01:        # Extract: single-hop cache lookup (no recursion), hit forwards / miss returns "none"
             return self.cache if self.cache is not None else build_notify("NO_CACHE")
-        elif mode_byte == 0x02:      # 生成：re-originate 递归穿透到上游 RATSI → 缓存转发
+        elif mode_byte == 0x02:      # Generate: re-originate recursively through to upstream RATSI → cache and forward
             proof = self.re_originate(REQ_GENERATE, now)
-            if proof[0] == RESP_PROOF[0]:      # 证明响应 → 写缓存（一个槽，覆盖式）
+            if proof[0] == RESP_PROOF[0]:      # proof response → write cache (one slot, overwrite-style)
                 self.cache = proof
             return proof
-        elif mode_byte == 0x03:      # 查询：回通知（发现信息，未签名）
-            return build_notify(f"上游 RATSI={self.upstream.name}, TTSI={self.name}")
+        elif mode_byte == 0x03:      # Query: return notice (discovery info, unsigned)
+            return build_notify(f"upstream RATSI={self.upstream.name}, TTSI={self.name}")
         else:
-            return build_fault(FAULT_FIX, "未知请求模式")
+            return build_fault(FAULT_FIX, "unknown request mode")

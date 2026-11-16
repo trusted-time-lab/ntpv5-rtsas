@@ -1,46 +1,48 @@
 # RTSAS Reference Implementation
 
-参考实现 for the **Root Time Source Alignment Signature and Transport Protocol (RTSAS)**，
-对应 Internet-Draft `draft-qiu-ntpv5-root-time-source-alignment-01`。
+Reference implementation for the **Root Time Source Alignment Signature and Transport Protocol (RTSAS)**,
+as specified in Internet-Draft `draft-qiu-ntpv5-root-time-source-alignment-01`.
 
-RTSAS 是一个 NTPv5 扩展字段协议，把时间值的出身从「声称」变成「证据」：一个预信任的
-根时源（Root Time Source）先认证某个时间服务实例的时钟已对齐物理源，该实例再签时间值；
-客户端只持根公钥，离线验证两级签名。
+RTSAS is an NTPv5 extension that turns a time value's provenance from a *claim* into *evidence*: a
+pre-trusted Root Time Source first attests that a given time service instance's clock has been
+checked for alignment against a physical source; that instance then signs the time value itself. A
+client holding only the root public key verifies both signatures offline.
 
-本仓库是「running code」——三算法（Ed25519 / ECDSA P-256 / SM2）签名、字段编解码、
-两级签名链、四节点组网，复现 draft §11 全部测试向量（正例 + 反例）。
+This repository is "running code" — three-algorithm signing (Ed25519 / ECDSA P-256 / SM2), field
+encoding, the two-level signature chain, and a four-node simulation, reproducing every test vector
+in draft §11 (positive and negative cases).
 
-## 结构
+## Structure
 
-| 目录 | 职责 |
+| Directory | Role |
 |---|---|
-| [`ref/`](ref/) | 框架层：协议本体的可执行规范（三算法 + 字段编解码 + 测试向量复现） |
-| [`sim/`](sim/) | 模拟层：四节点组网（根时源 / RATSI / TTSI / 客户端）端到端验证 |
+| [`ref/`](ref/) | Framework layer: the executable specification (three algorithms + field encoding + test-vector reproduction) |
+| [`sim/`](sim/) | Simulation layer: four-node network (Root Time Source / RATSI / TTSI / Client) end-to-end verification |
 
-## 依赖
+## Dependencies
 
 ```
 pip install gmssl cryptography pycryptodome
 ```
 
-- `gmssl`：SM2 / SM3
-- `cryptography`：Ed25519
-- `pycryptodome`（`Cryptodome` 命名空间）：ECDSA P-256 点运算（手动固定 k）
+- `gmssl`: SM2 / SM3
+- `cryptography`: Ed25519
+- `pycryptodome` (`Cryptodome` namespace): ECDSA P-256 point arithmetic (manual fixed k)
 
-## 运行
+## Running
 
-框架层（复现 draft §11 测试向量，51 项正反例）：
+Framework layer (reproduces draft §11 test vectors, 51 positive/negative cases):
 
 ```
 cd ref && python vectors.py
 ```
 
-模拟层（四节点组网完备性，27 项）：
+Simulation layer (four-node network completeness, 27 checks):
 
 ```
 cd sim && python demo.py
 ```
 
-## 许可
+## License
 
-Simplified BSD License（见 [LICENSE](LICENSE)）。测试向量所用私钥均为公开测试值，严禁用于生产。
+Simplified BSD License (see [LICENSE](LICENSE)). All private keys used in the test vectors are public test values, never for production use.

@@ -1,44 +1,45 @@
-# RTSAS 模拟实现层（系统组网各节点）
+# RTSAS Simulation Layer (Network Nodes)
 
-本目录是「**模拟实现层**（simulation）」，验证 RTSAS 的系统设计完备性——
-用四个节点（根时源 / RATSI / TTSI / 客户端）组网跑端到端流程。
+This directory is the **simulation layer**, verifying RTSAS's system-design completeness — running
+end-to-end flows across four nodes (Root Time Source / RATSI / TTSI / Client).
 
-## 分层架构
+## Layering
 
 ```
 ntpv5-rtsas/
-├── ref/              框架层（framework）：协议本体的可执行规范
-│   ├── algo.py           三算法签名/验签 + 标识派生哈希（逐字节精确）
-│   ├── fields.py         字段编解码 + 三签名原文（逐字节精确）
-│   └── vectors.py        复现 draft §11 全部测试向量（51 项，严格校对）
-└── sim/              模拟实现层（simulation）：系统组网行为（本目录）
-    ├── root.py           根时源节点（签 RTSAA，第一级签名）
-    ├── ratsi.py          RATSI 节点（签 RTSIS + 缓存 + 凭证分级）
-    ├── ttsi.py           TTSI 节点（bearer 授权 + re-originate + 转发）
-    ├── client.py         客户端节点（发请求 + 验 RTSAP）
-    ├── common.py         模拟层公共（复用框架层，不重复实现字段/签名）
-    └── demo.py           端到端 demo（27 项完备性验证）
+├── ref/              Framework layer: executable specification
+│   ├── algo.py           Three-algorithm sign/verify + IDH (byte-exact)
+│   ├── fields.py         Field encoding + signing payloads (byte-exact)
+│   └── vectors.py        Reproduces draft §11 test vectors (51, strict)
+└── sim/              Simulation layer: network behavior (this directory)
+    ├── root.py           Root Time Source node (signs RTSAA, first level)
+    ├── ratsi.py          RATSI node (signs RTSIS + cache + credential tiering)
+    ├── ttsi.py           TTSI node (bearer auth + re-originate + relay)
+    ├── client.py         Client node (sends requests + verifies RTSAP)
+    ├── common.py         Shared simulation logic (reuses framework layer)
+    └── demo.py           End-to-end demo (27 completeness checks)
 ```
 
-**分界**：框架层管「字节对不对」（逐字节对齐 draft），模拟层管「行为对不对」（组网流程自洽）。
-模拟层**复用框架层**做字段编解码与签名，不重复实现——字段编解码与密码学原语只有一个权威实现。
+**Division**: the framework layer checks "are the bytes right" (byte-exact against the draft); the
+simulation layer checks "is the behavior right" (self-consistent networking). The simulation layer
+reuses the framework layer for field encoding and signing — no duplication.
 
-## 运行
+## Running
 
 ```
 python demo.py
 ```
 
-期望：`全部 27 项验证通过`。
+Expected: `All 27 checks passed`.
 
-## 覆盖的设计验证点
+## Design points covered
 
-| 标记 | 验证点 | draft |
+| Mark | Check | Draft |
 |---|---|---|
-| [A] | 字节数：RTSAA 168 / RTSIS 64 / 签名原文 118·94·31 / Request·Response 各 280 | §4 |
-| [B] | 两级签名链：根时源签 RTSAA → RATSI 签 RTSIS → 客户端验 | §4 |
-| [C] | 篡改必暴露：篡改 PT / RTSAA / 换宽松 RTSAA 三路验签失败 | §8 |
-| [D] | 状态机：提取命中/NO_CACHE、生成触发对齐、查询发现 | §3.4 |
-| [E][F] | 逐跳授权 + re-originate + 缓存一个槽 | §6 |
-| [G] | 凭证分级：生成 MUST 验、提取/查询 SHOULD 验；公钥定位 MUST 独立 | §6.4 |
-| [H] | 未签名通知/故障边界 | §4.3 |
+| [A] | Byte sizes: RTSAA 168 / RTSIS 64 / payloads 118·94·31 / Request·Response 280 each | §4 |
+| [B] | Two-level chain: Root signs RTSAA → RATSI signs RTSIS → client verifies | §4 |
+| [C] | Tamper-evidence: tamper PT / RTSAA / looser RTSAA all fail verification | §8 |
+| [D] | State machine: extract hit/NO_CACHE, generate triggers alignment, query discovery | §3.4 |
+| [E][F] | Hop-by-hop authorization + re-originate + one-slot cache | §6 |
+| [G] | Credential tiering: Generate MUST, Extract/Query SHOULD; public-key location MUST independent | §6.4 |
+| [H] | Unsigned notice/fault boundary | §4.3 |

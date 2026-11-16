@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-RTSAS 原型 — 根时源（Root Time Source, RTS）
+RTSAS prototype — Root Time Source (RTS)
 
-职责（§2.1.3）：运营物理时源、持根时源私钥、签发 RTSAA（第一级签名）。
-  - 对齐认证：测量 RATSI 的时间偏移 |Δ_measured|，界内签发 RTSAA（承诺「偏移不超过 δ」）。
-  - 不参与凭证签发/验证、不碰「客户端↔RATSI」授权关系（§0.3「协议只锚定、不鉴别」）。
+Responsibilities (§2.1.3): operate the physical time source, hold the Root Time Source private key,
+and sign RTSAA (first-level signature).
+  - Alignment authentication: measure the RATSI time offset |Δ_measured|, sign RTSAA if within bound
+    (promising "offset no greater than δ").
+  - Does not participate in credential signing/verification and does not touch the "client↔RATSI"
+    authorization relationship (§0.3 "the protocol only anchors, does not authenticate").
 """
 from __future__ import annotations
 
@@ -15,17 +18,17 @@ from common import (
 
 
 class RootTimeSource:
-    def __init__(self, name: str = "根时源"):
+    def __init__(self, name: str = "Root Time Source"):
         self.name = name
         self.sk, self.pk = gen_ed25519()
-        self.pk_raw = pk_raw_32(self.pk)   # 根时源公钥（预置给下游）
+        self.pk_raw = pk_raw_32(self.pk)   # Root Time Source public key (pre-provisioned downstream)
 
-    # ---- 对齐认证：签发 RTSAA（第一级签名）----
+    # ---- alignment authentication: sign RTSAA (first-level signature) ----
     def sign_rtsaa(self, ratsi_pk_64: bytes, delta_ns: int, issued: int, vfrom: int, vuntil: int) -> bytes:
-        """根时源测量 RATSI 偏移、界内签发 RTSAA（承诺偏移 ≤ δ）。"""
+        """Root Time Source measures RATSI offset, signs RTSAA if within bound (promising offset ≤ δ)."""
         return build_rtsaa(self.sk, ALG_ED25519, ratsi_pk_64, delta_ns, issued, vfrom, vuntil)
 
-    # ---- 验 RTSAA（下游验证第一级签名用）----
+    # ---- verify RTSAA (for downstream verification of the first-level signature) ----
     def verify_rtsaa(self, rtsaa: bytes) -> bool:
         p = parse_rtsaa(rtsaa)
         body = rtsaa_body(p['alg_id'], p['pk_64'], p['delta'], p['issued'], p['vfrom'], p['vuntil'])

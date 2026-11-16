@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 """
-RTSAS 原型 — 端到端演示（四模块完备性验证）
+RTSAS prototype — end-to-end demo (four-module completeness verification)
 
-覆盖的设计验证点：
-  [A] 字节数：RTSAA 168B / RTSIS 64B / 签名原文 118-94-31B / Request·Response Data 各 280B
-  [B] 两级签名链：根时源签 RTSAA → RATSI 签 RTSIS → 客户端验（§4.1–§4.4）
-  [C] 篡改必暴露：篡改 PT / 篡改 RTSAA / 换宽松 RTSAA → 验签失败
-  [D] 请求-响应状态机：提取（命中缓存/NO_CACHE）、生成（触发对齐+签证明+写缓存）、查询（发现）
-  [E] 逐跳授权 + re-originate：TTSI 验下游凭证、用自己的凭证+签名重包装发上游
-  [F] 缓存一个槽：覆盖式留最新、提取单跳查缓存、生成递归穿透
-  [G] 凭证分级：生成 MUST 验、提取/查询 SHOULD 验；公钥定位 MUST 与凭证有效性验证分级独立
-  [H] 未签名通知/故障边界：查询/故障响应无 RTSIS、不可验
+Design verification points covered:
+  [A] Byte counts: RTSAA 168B / RTSIS 64B / signing payloads 118-94-31B / Request·Response Data 280B each
+  [B] Two-level signature chain: Root Time Source signs RTSAA → RATSI signs RTSIS → client verifies (§4.1–§4.4)
+  [C] Tamper-evidence: tamper PT / tamper RTSAA / swap looser RTSAA → verification fails
+  [D] Request-response state machine: Extract (cache hit/NO_CACHE), Generate (trigger alignment+sign proof+write cache), Query (discovery)
+  [E] Hop-by-hop authorization + re-originate: TTSI validates downstream credential, re-wraps with own credential+signature to upstream
+  [F] Cache one slot: overwrite-style keeps latest, Extract single-hop cache lookup, Generate recurses through
+  [G] Credential tiering: Generate MUST validate, Extract/Query SHOULD validate; public-key location MUST independent of tiered credential validity validation
+  [H] Unsigned notice/fault boundary: Query/fault responses have no RTSIS, not verifiable
 """
 from __future__ import annotations
 
@@ -35,19 +35,19 @@ def check(name: str, cond: bool, detail: str = ""):
     global PASS
     mark = "✓" if cond else "✗"
     print(f"  [{mark}] {name}" + (f" — {detail}" if detail else ""))
-    assert cond, f"验证失败：{name}"
+    assert cond, f"verification failed: {name}"
     PASS += 1
 
 
 def main():
     print("=" * 78)
-    print("RTSAS 原型 — 四模块完备性验证（根时源 / RATSI / TTSI / 客户端）")
+    print("RTSAS prototype — four-module completeness verification (Root Time Source / RATSI / TTSI / client)")
     print("=" * 78)
 
-    # ============ [A] 字节数自检 ============
-    print("\n[A] 字节数自检（§2.1.3 / §2.1.4 / §3.1）")
-    check("域前缀 Calib/Trust/Client = 14/14/15B", len(P_CALIB) == 14 and len(P_TRUST) == 14 and len(P_CLIENT) == 15)
-    # 临时密钥对，验证结构字节数
+    # ============ [A] byte-count self-check ============
+    print("\n[A] byte-count self-check (§2.1.3 / §2.1.4 / §3.1)")
+    check("domain prefix Calib/Trust/Client = 14/14/15B", len(P_CALIB) == 14 and len(P_TRUST) == 14 and len(P_CLIENT) == 15)
+    # temporary keypair, verify structure byte counts
     rk, rpk = gen_ed25519()
     sk, pk = gen_ed25519()
     pk64 = pk_field_64(pk)
@@ -60,99 +60,99 @@ def main():
     check("Response Data = 280B", len(rsp) == 280)
     req = build_request_data(REQ_GENERATE, ALG_ED25519, make_credential(pfk), client_sign(sk, REQ_GENERATE, b'\x01'*8))
     check("Request Data = 280B", len(req) == 280)
-    check("签名原文 Calib=118B", len(P_CALIB + rtsaa_body(ALG_ED25519, pk64, 100, 1, 1, 2)) == 118)
-    check("签名原文 Trust=94B", len(rtsis_payload(RESP_PROOF, pfk, rtsaa_fingerprint(rtsaa), u64be(1))) == 94)
-    check("签名原文 Client=31B", len(P_CLIENT + REQ_GENERATE + b'\x01'*8) == 31)
+    check("signing payload Calib=118B", len(P_CALIB + rtsaa_body(ALG_ED25519, pk64, 100, 1, 1, 2)) == 118)
+    check("signing payload Trust=94B", len(rtsis_payload(RESP_PROOF, pfk, rtsaa_fingerprint(rtsaa), u64be(1))) == 94)
+    check("signing payload Client=31B", len(P_CLIENT + REQ_GENERATE + b'\x01'*8) == 31)
 
-    # ============ 阶段 0：密钥 + 带外注册 ============
-    print("\n[阶段0] 密钥 + 带外注册（§7.6 公钥带外注册、不承载于凭证内）")
+    # ============ phase 0: keys + out-of-band registration ============
+    print("\n[phase0] keys + out-of-band registration (§7.6 public keys registered out-of-band, not carried in the credential)")
     root = RootTimeSource("Root Time Source")
     ratsi = RATSI("RATSI-A", root, delta_ns=100)
     ttsi = TTSI("TTSI-B", ratsi)
-    client = Client("终端客户端", root.pk_raw)
+    client = Client("terminal client", root.pk_raw)
 
-    ratsi.register_client(client.pk_raw)          # 客户端直连 RATSI（带外注册公钥）
-    ratsi.register_client(ttsi.pk_raw)            # TTSI 作为「上游的网络时间客户端」带外注册给 RATSI
-    ttsi.register_downstream(client.pk_raw)       # 客户端经 TTSI 中转（TTSI 注册下游公钥）
+    ratsi.register_client(client.pk_raw)          # client directly connects RATSI (out-of-band public-key registration)
+    ratsi.register_client(ttsi.pk_raw)            # TTSI registered out-of-band to RATSI as an "upstream network time client"
+    ttsi.register_downstream(client.pk_raw)       # client transits via TTSI (TTSI registers downstream public key)
     now = 1_700_000_000
     cookie = b'\xCA\xFE\x01\x02\x03\x04\x05\x06'
-    print("  根时源公钥 / RATSI 公钥 / TTSI 公钥 / 客户端公钥 均生成；带外注册完成")
+    print("  Root Time Source public key / RATSI public key / TTSI public key / client public key all generated; out-of-band registration done")
 
-    # ============ [B] 两级签名链（直连生成）============
-    print("\n[B] 两级签名链：直连生成（客户端 → RATSI）")
+    # ============ [B] two-level signature chain (direct-connect generate) ============
+    print("\n[B] two-level signature chain: direct-connect generate (client → RATSI)")
     rsp = client.send_request(REQ_GENERATE, cookie, ratsi, now)
-    check("生成返回证明响应（0x01）", rsp[0] == RESP_PROOF[0])
+    check("generate returns proof response (0x01)", rsp[0] == RESP_PROOF[0])
     ok, msg = client.verify_rtsap(rsp)
-    check("客户端验 RTSAP 通过（§4.1-§4.4）", ok, msg)
+    check("client verifies RTSAP passed (§4.1-§4.4)", ok, msg)
 
-    # ============ [C] 篡改必暴露 ============
-    print("\n[C] 篡改必暴露（§1.1 / §11.1 三条密码学保证）")
-    # 篡改 PT（偏移 272-279）
+    # ============ [C] tamper-evidence ============
+    print("\n[C] tamper-evidence (§1.1 / §11.1 three cryptographic guarantees)")
+    # tamper PT (offset 272-279)
     t = bytearray(rsp); t[272] ^= 0xFF
-    check("篡改 PT → RTSIS 验签失败", not client.verify_rtsap(bytes(t))[0])
-    # 篡改 RTSAA（偏移 104-271，改 δ）
+    check("tamper PT → RTSIS verification fails", not client.verify_rtsap(bytes(t))[0])
+    # tamper RTSAA (offset 104-271, change δ)
     t = bytearray(rsp); t[104+72] ^= 0x01
-    check("篡改 RTSAA(δ) → 根时源验签失败", not client.verify_rtsap(bytes(t))[0])
-    # 换宽松 RTSAA（δ 更大）→ RTSIS 中 RTSAA 指纹不匹配
+    check("tamper RTSAA(δ) → Root Time Source verification fails", not client.verify_rtsap(bytes(t))[0])
+    # swap looser RTSAA (larger δ) → RTSAA fingerprint in RTSIS mismatches
     looser = build_rtsaa(root.sk, ALG_ED25519, pk_field_64(ratsi.pk), 9999, now, now, now+7200)
     t = bytearray(rsp); t[104:272] = looser
-    check("换宽松 RTSAA → RTSAA 指纹不匹配 → 验签失败", not client.verify_rtsap(bytes(t))[0])
+    check("swap looser RTSAA → RTSAA fingerprint mismatch → verification fails", not client.verify_rtsap(bytes(t))[0])
 
-    # ============ [D] 请求-响应状态机（提取/查询）============
-    print("\n[D] 请求-响应状态机（提取单跳查缓存 / 查询发现）")
+    # ============ [D] request-response state machine (Extract/Query) ============
+    print("\n[D] request-response state machine (Extract single-hop cache lookup / Query discovery)")
     rsp2 = client.send_request(REQ_EXTRACT, cookie, ratsi, now)
-    check("提取命中缓存 → 返回证明（0x01）", rsp2[0] == RESP_PROOF[0])
-    # 新客户端（公钥未带外注册），提取 → 公钥定位失败 → 故障（§7.6 公钥定位 MUST）
-    fresh = Client("未注册客户端", root.pk_raw)
+    check("Extract cache hit → returns proof (0x01)", rsp2[0] == RESP_PROOF[0])
+    # new client (public key not registered out-of-band), Extract → public-key location fails → fault (§7.6 public-key location MUST)
+    fresh = Client("unregistered client", root.pk_raw)
     rsp3 = fresh.send_request(REQ_EXTRACT, cookie, ratsi, now)
-    check("提取 + 公钥未带外注册 → 定位失败 → 故障（公钥定位 MUST）", rsp3[0] == RESP_FAULT[0])
-    # 查询（已注册客户端）
+    check("Extract + public key not registered out-of-band → location fails → fault (public-key location MUST)", rsp3[0] == RESP_FAULT[0])
+    # Query (registered client)
     rsp4 = client.send_request(REQ_QUERY, cookie, ratsi, now)
-    check("查询 → 通知（0x02，未签名）", rsp4[0] == RESP_NOTIFY[0])
-    check("通知响应无 RTSIS（不可验，§3.3）", not client.verify_rtsap(rsp4)[0])
+    check("Query → notice (0x02, unsigned)", rsp4[0] == RESP_NOTIFY[0])
+    check("notice response has no RTSIS (not verifiable, §3.3)", not client.verify_rtsap(rsp4)[0])
 
-    # ============ [E]+[F] 逐跳授权 + re-originate + 缓存（中转生成）============
-    print("\n[E]+[F] 逐跳授权 + re-originate + 缓存一个槽（客户端 → TTSI → RATSI）")
+    # ============ [E]+[F] hop-by-hop authorization + re-originate + cache (transit generate) ============
+    print("\n[E]+[F] hop-by-hop authorization + re-originate + cache one slot (client → TTSI → RATSI)")
     rsp5 = client.send_request(REQ_GENERATE, cookie, ttsi, now)
-    check("中转生成 → 返回证明（0x01）", rsp5[0] == RESP_PROOF[0])
+    check("transit generate → returns proof (0x01)", rsp5[0] == RESP_PROOF[0])
     ok, msg = client.verify_rtsap(rsp5)
-    check("客户端验中转转发的 RTSAP 通过（验签出者 RATSI-A，非转发者 TTSI-B）", ok, msg)
-    # TTSI 缓存了证明，后续提取命中（不递归上游）
+    check("client verifies transit-forwarded RTSAP passed (verifies the signing RATSI-A, not the forwarding TTSI-B)", ok, msg)
+    # TTSI cached the proof, subsequent Extract hits (no upstream recursion)
     rsp6 = client.send_request(REQ_EXTRACT, cookie, ttsi, now)
-    check("中转提取命中缓存 → 返回证明（单跳、不递归）", rsp6[0] == RESP_PROOF[0])
-    # 提取未命中：新 TTSI（无缓存）
+    check("transit Extract cache hit → returns proof (single hop, no recursion)", rsp6[0] == RESP_PROOF[0])
+    # Extract miss: new TTSI (no cache)
     ttsi2 = TTSI("TTSI-C", ratsi)
     ttsi2.register_downstream(client.pk_raw)
     rsp7 = client.send_request(REQ_EXTRACT, cookie, ttsi2, now)
-    check("中转提取未命中缓存 → NO_CACHE 通知（不递归）", rsp7[0] == RESP_NOTIFY[0])
+    check("transit Extract cache miss → NO_CACHE notice (no recursion)", rsp7[0] == RESP_NOTIFY[0])
 
-    # ============ [G] 凭证分级 ============
-    print("\n[G] 凭证分级（§7.6 方案 C：生成 MUST 验、提取/查询 SHOULD 验）")
-    # 撤销客户端凭证（公钥仍在册，但凭证失效）
+    # ============ [G] credential tiering ============
+    print("\n[G] credential tiering (§7.6 option C: Generate MUST validate, Extract/Query SHOULD validate)")
+    # revoke client credential (public key still registered, but credential invalid)
     ratsi.revoke_credential(client.pk_raw)
     rsp8 = client.send_request(REQ_GENERATE, cookie, ratsi, now)
-    check("生成 + 凭证失效 → MUST 拒绝（故障）", rsp8[0] == RESP_FAULT[0])
+    check("Generate + credential invalid → MUST reject (fault)", rsp8[0] == RESP_FAULT[0])
     rsp9 = client.send_request(REQ_EXTRACT, cookie, ratsi, now)
-    check("提取 + 凭证失效 → SHOULD 拒绝（严格实现）", rsp9[0] == RESP_FAULT[0])
-    # 恢复凭证
+    check("Extract + credential invalid → SHOULD reject (strict implementation)", rsp9[0] == RESP_FAULT[0])
+    # restore credential
     ratsi.register_client(client.pk_raw)
-    # 凭证全 0（字段必备 MUST 拒绝）
+    # all-zero credential (required field, MUST reject)
     zero_cred = build_request_data(REQ_GENERATE, ALG_ED25519, b'\x00'*200, client_sign(client.sk, REQ_GENERATE, cookie))
     rsp10 = ratsi.handle_request(zero_cred, cookie, now)
-    check("凭证全 0 → MUST 拒绝（字段必备，§7.5）", rsp10[0] == RESP_FAULT[0])
+    check("all-zero credential → MUST reject (required field, §7.5)", rsp10[0] == RESP_FAULT[0])
 
-    # ============ [H] 未签名通知/故障边界 ============
-    print("\n[H] 未签名通知/故障边界（§3.3：不进 RTSIS 原文、客户端「参考」非「确信」）")
-    check("通知响应（0x02）verify_rtsap 失败（无 RTSAP 可验）", not client.verify_rtsap(rsp4)[0])
-    check("故障响应（0x03）verify_rtsap 失败（无 RTSAP 可验）", not client.verify_rtsap(rsp10)[0])
-    check("故障响应偏移 8 = 故障编码 0x02（修）", rsp10[0] == RESP_FAULT[0] and rsp10[8] == FAULT_FIX[0])
+    # ============ [H] unsigned notice/fault boundary ============
+    print("\n[H] unsigned notice/fault boundary (§3.3: not in the RTSIS signing payload, client 'reference' not 'assurance')")
+    check("notice response (0x02) verify_rtsap fails (no RTSAP to verify)", not client.verify_rtsap(rsp4)[0])
+    check("fault response (0x03) verify_rtsap fails (no RTSAP to verify)", not client.verify_rtsap(rsp10)[0])
+    check("fault response offset 8 = fault code 0x02 (fix)", rsp10[0] == RESP_FAULT[0] and rsp10[8] == FAULT_FIX[0])
 
     print("\n" + "=" * 78)
-    print(f"全部 {PASS} 项验证通过 — RTSAS 核心设计完备性确认")
-    print("  · 两级签名链（RTSAA→RTSIS→PT）验签闭环，字节数 168/64/280/280 精确")
-    print("  · 篡改必暴露（PT/RTSAA/换宽松 RTSAA 三路验签失败）")
-    print("  · 逐跳授权 + re-originate + 缓存一个槽 + 提取单跳/生成递归 行为自洽")
-    print("  · 凭证分级（生成 MUST/提取查询 SHOULD）+ 公钥定位 MUST 独立")
+    print(f"all {PASS} checks passed — RTSAS core design completeness confirmed")
+    print("  · two-level signature chain (RTSAA→RTSIS→PT) verification closed loop, byte counts 168/64/280/280 exact")
+    print("  · tamper-evidence (PT/RTSAA/swap looser RTSAA three-way verification failure)")
+    print("  · hop-by-hop authorization + re-originate + cache one slot + Extract single-hop/Generate recursion self-consistent")
+    print("  · credential tiering (Generate MUST/Extract Query SHOULD) + public-key location MUST independent")
     print("=" * 78)
 
 
