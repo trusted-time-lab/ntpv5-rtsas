@@ -3,6 +3,8 @@
 Reference implementation for the **Root Time Source Alignment Signature and Transport Protocol (RTSAS)**,
 as specified in Internet-Draft `draft-qiu-ntpv5-root-time-source-alignment-01`.
 
+> **Draft text**: [`trusted-time-lab/draft-ntpv5-rtsas`](https://github.com/trusted-time-lab/draft-ntpv5-rtsas)
+
 RTSAS is an NTPv5 extension that turns a time value's provenance from a *claim* into *evidence*: a
 pre-trusted Root Time Source first attests that a given time service instance's clock has been
 checked for alignment against a physical source; that instance then signs the time value itself. A
