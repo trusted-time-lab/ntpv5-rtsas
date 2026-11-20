@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-draft01_check.py — run the draft-01 §11 test vectors against the implementation (strict verification)
+draft01_check.py — run the draft §11 test vectors against the implementation (strict verification)
 
-Approach: read the draft-01 file, use regex to extract the "hand-written" test vector output values
+Approach: read the draft file, use regex to extract the "hand-written" test vector output values
 in §11 (e / Root signature / RTSIS / RATSI-PKF / RTSAA fingerprint), then derive them from the
 fixed keys + timestamps using algo, asserting each "value written in the file == code-derived value".
 
-Zero failures means the draft-01 §11 test vectors are correct and reproducible byte-for-byte, not
+Zero failures means the draft §11 test vectors are correct and reproducible byte-for-byte, not
 transcription errors.
 
-Run: python draft01_check.py "<draft-01 path>"
+Run: python draft01_check.py "<draft path>"
 """
 
 import re
@@ -46,7 +46,7 @@ def main(draft_path):
             failed += 1
             print(f"  ❌ {name}\n      file says: {expected_hex}\n      code says: {actual_bytes.hex()}")
 
-    print("=== extract test vectors from draft-01 §11, compare with code-derived values ===\n")
+    print("=== extract test vectors from draft §11, compare with code-derived values ===\n")
 
     # ---- fixed inputs (standard test keys, from RFC §10.0, hardcoded) ----
     SK_ROOT = "0000000000000000000000000000000000000000000000000000000000000001"
@@ -63,7 +63,7 @@ def main(draft_path):
     TS_UNTIL  = "EBE6249000000000"
     TS_PT     = "EBE618D880000000"
 
-    # ---- extract output values from draft-01 ----
+    # ---- extract output values from draft ----
     # §11.1 SM2 RTSAA
     e1_hex     = extract(r"Za_root.*?0x([0-9a-fA-F]{64})", text, "§11.1 e")
     sig1_hex   = extract(r"root_signature = 0x([0-9a-fA-F]{128})", text, "§11.1 root_signature")
@@ -125,14 +125,14 @@ def main(draft_path):
 
     print(f"\n===== Result: {passed} passed / {failed} failed =====")
     if failed == 0:
-        print("✅ draft-01 §11 test vectors are correct and reproducible byte-for-byte")
+        print("✅ draft §11 test vectors are correct and reproducible byte-for-byte")
     else:
-        print("❌ transcription errors exist, draft-01 §11 needs fixing")
+        print("❌ transcription errors exist, draft §11 needs fixing")
     return failed
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: python draft01_check.py <draft-01 file path>")
+        print("usage: python draft01_check.py <draft file path>")
         sys.exit(1)
     sys.exit(main(sys.argv[1]))

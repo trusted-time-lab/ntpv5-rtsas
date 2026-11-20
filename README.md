@@ -1,7 +1,7 @@
 # RTSAS Reference Implementation
 
 Reference implementation for the **Root Time Source Alignment Signature and Transport Protocol (RTSAS)**,
-as specified in Internet-Draft `draft-qiu-ntpv5-root-time-source-alignment-01`.
+as specified in Internet-Draft `draft-qiu-ntpv5-root-time-source-alignment-00`.
 
 > **Draft text**: [`trusted-time-lab/draft-ntpv5-rtsas`](https://github.com/trusted-time-lab/draft-ntpv5-rtsas)
 
